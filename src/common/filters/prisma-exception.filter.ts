@@ -1,25 +1,49 @@
-import { ArgumentsHost, Catch, ExceptionFilter, HttpStatus } from "@nestjs/common";
-import type { Response } from "express";
-import { Prisma } from "../../generated/prisma/client.js";
+import {
+  ArgumentsHost,
+  Catch,
+  ExceptionFilter,
+  HttpStatus,
+} from '@nestjs/common';
+import { Request, Response } from 'express';
+import { Prisma } from '../../generated/prisma/client.js';
 
 @Catch(Prisma.PrismaClientKnownRequestError)
 export class PrismaExceptionFilter implements ExceptionFilter {
-
   catch(exception: Prisma.PrismaClientKnownRequestError, host: ArgumentsHost) {
+    const ctx = host.switchToHttp();
+    const response = ctx.getResponse<Response>();
+    const request = ctx.getRequest<Request>();
 
-    const response = host.switchToHttp().getResponse<Response>();
-
-    const codigos: Record<string, number> = {
-      P2025: HttpStatus.NOT_FOUND,
-      P2002: HttpStatus.CONFLICT,
-      P2003: HttpStatus.BAD_REQUEST,
+    const base = {
+      timestamp: new Date().toISOString(),
+      path: request.url,
     };
 
-    const status = codigos[exception.code] ?? HttpStatus.INTERNAL_SERVER_ERROR;
-    
-    response.status(status).json({
-      statusCode: status, codigoPrisma: exception.code,
-      mensaje: 'Error al procesar la operación en base de datos',
-    });
+    switch (exception.code) {
+      case 'P2025':
+        return response.status(HttpStatus.NOT_FOUND).json({
+          statusCode: HttpStatus.NOT_FOUND,
+          ...base,
+          message: 'El recurso solicitado no existe',
+        });
+      case 'P2002':
+        return response.status(HttpStatus.CONFLICT).json({
+          statusCode: HttpStatus.CONFLICT,
+          ...base,
+          message: 'Ya existe un registro con ese valor único',
+        });
+      case 'P2003':
+        return response.status(HttpStatus.BAD_REQUEST).json({
+          statusCode: HttpStatus.BAD_REQUEST,
+          ...base,
+          message: 'La relación referenciada no existe',
+        });
+      default:
+        return response.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+          ...base,
+          message: 'Error interno de base de datos',
+        });
+    }
   }
 }

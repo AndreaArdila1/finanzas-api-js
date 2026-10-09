@@ -3,9 +3,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateTransaccionDto } from './dto/create-transaccion.dto.js';
 import { UpdateTransaccionDto } from './dto/update-transaccion.dto.js';
+import { FilterTransaccionDto } from './dto/filter-transaccion.dto.js';
 
 @Injectable()
 export class TransaccionesService {
@@ -24,12 +26,37 @@ export class TransaccionesService {
     });
   }
 
-  obtenerMias(usuarioId: number) {
-    return this.prisma.transaccion.findMany({
-      where: { usuarioId },
-      include: { categoria: true },
-      orderBy: { id: 'asc' },
-    });
+  async obtenerMias(usuarioId: number, filtros: FilterTransaccionDto) {
+    const { tipo, desde, hasta, pagina = 1, limite = 10 } = filtros;
+
+    const where: Prisma.TransaccionWhereInput = {
+      usuarioId,
+      ...(tipo && { tipo }),
+      ...(desde || hasta
+        ? {
+            fecha: {
+              ...(desde && { gte: new Date(desde) }),
+              ...(hasta && { lte: new Date(hasta) }),
+            },
+          }
+        : {}),
+    };
+
+    const [datos, total] = await Promise.all([
+      this.prisma.transaccion.findMany({
+        where,
+        include: { categoria: true },
+        orderBy: { fecha: 'desc' },
+        skip: (pagina - 1) * limite,
+        take: limite,
+      }),
+      this.prisma.transaccion.count({ where }),
+    ]);
+
+    return {
+      datos,
+      meta: { pagina, limite, total, totalPaginas: Math.ceil(total / limite) },
+    };
   }
 
   obtenerTodasAdmin() {
@@ -40,6 +67,41 @@ export class TransaccionesService {
       },
       orderBy: { id: 'asc' },
     });
+  }
+
+  async obtenerTodasAdminConFiltros(filtros: FilterTransaccionDto) {
+    const { tipo, desde, hasta, pagina = 1, limite = 10 } = filtros;
+
+    const where: Prisma.TransaccionWhereInput = {
+      ...(tipo && { tipo }),
+      ...(desde || hasta
+        ? {
+            fecha: {
+              ...(desde && { gte: new Date(desde) }),
+              ...(hasta && { lte: new Date(hasta) }),
+            },
+          }
+        : {}),
+    };
+
+    const [datos, total] = await Promise.all([
+      this.prisma.transaccion.findMany({
+        where,
+        include: {
+          categoria: true,
+          usuario: { select: { id: true, nombre: true, email: true } },
+        },
+        orderBy: { fecha: 'desc' },
+        skip: (pagina - 1) * limite,
+        take: limite,
+      }),
+      this.prisma.transaccion.count({ where }),
+    ]);
+
+    return {
+      datos,
+      meta: { pagina, limite, total, totalPaginas: Math.ceil(total / limite) },
+    };
   }
 
   async obtenerUna(id: number, usuarioId: number) {
